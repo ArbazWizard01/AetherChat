@@ -1,0 +1,18 @@
+# Root dependencies
+node_modules/
+
+# Sub-directory dependencies
+server/node_modules/
+client/node_modules/
+
+# Environment secrets
+.env
+server/.env
+client/.env
+client/.env.local
+
+# Build outputs & system caches
+server/dist/
+client/dist/
+*.log
+.DS_Store
