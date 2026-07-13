@@ -22,9 +22,9 @@ model User {
 model Conversation {
   id        String   @id @default(uuid())
   isGroup   Boolean  @default(false)
-  name      String?  // Null for 1-on-1 DMs, holds the group name for Group Chats
+  name      String?  
   createdAt DateTime @default(now())
-
+  updatedAt DateTime @default(now())
   members   ConversationMember[]
   messages  Message[]
 }

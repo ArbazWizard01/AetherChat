@@ -10,6 +10,7 @@ import {
   getConversationMessages,
   markAsRead,
 } from "../controllers/httpController.js";
+import { getUserConversations } from "../controllers/conversationController.js";
 
 const router = Router();
 
@@ -20,7 +21,11 @@ router.post("/conversations", authenticateJWT, createConversation);
 router.post("/conversations/members", authenticateJWT, addConversationMember);
 router.patch("/conversations/promote", authenticateJWT, promoteToAdmin);
 router.delete("/conversations/kick", authenticateJWT, removeConversationMember);
-router.get("/conversations", authenticateJWT, getAllConversations);
+
+router.get("/conversations", authenticateJWT, getUserConversations);
+
+router.get("/conversations/all", authenticateJWT, getAllConversations);
+
 router.get(
   "/conversations/:conversationId/messages",
   authenticateJWT,

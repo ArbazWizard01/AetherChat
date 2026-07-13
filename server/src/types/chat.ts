@@ -15,6 +15,7 @@ export interface EventPayload {
 }
 
 export type IncomingEvent =
+  | { type: "JOIN_ROOM"; payload: Omit<EventPayload, "text"> }
   | { type: "SEND_MESSAGE"; payload: Required<EventPayload> }
   | { type: "TYPING_START"; payload: Omit<EventPayload, "text"> }
   | { type: "TYPING_STOP"; payload: Omit<EventPayload, "text"> };

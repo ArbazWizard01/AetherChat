@@ -35,7 +35,7 @@ export async function handleMessage(
 
       if (!membership) {
         console.log(
-          `❌ Access Denied: User [${username}] tried to text in room [${conversationId}] without membership.`,
+          `❌ Access Denied: User [${username}] tried to target room [${conversationId}] without membership.`,
         );
         socket.send(
           JSON.stringify({
@@ -53,20 +53,93 @@ export async function handleMessage(
         `📌 Room Entrance: [${username}] checked into conversation room [${conversationId}].`,
       );
 
+      await prisma.message.updateMany({
+        where: {
+          conversationId,
+          NOT: { userId },
+          status: { in: ["SENT", "DELIVERED"] },
+        },
+        data: { status: "READ" },
+      });
+
+      broadcastToRoom(
+        wss,
+        conversationId,
+        JSON.stringify({
+          type: "MESSAGES_READ",
+          payload: { conversationId },
+        }),
+      );
+
       broadcastOnlineUsers(wss, conversationId);
     }
 
     const cachedUser = phonebook.get(socket)!;
 
     switch (event.type) {
+      case "JOIN_ROOM": {
+        console.log(
+          `🔄 Session Sync: [${cachedUser.username}] is now actively listening to stream [${conversationId}].`,
+        );
+        await prisma.message.updateMany({
+          where: {
+            conversationId,
+            NOT: { userId },
+            status: { in: ["SENT", "DELIVERED"] },
+          },
+          data: { status: "READ" },
+        });
+
+        broadcastToRoom(
+          wss,
+          conversationId,
+          JSON.stringify({
+            type: "MESSAGES_READ",
+            payload: { conversationId },
+          }),
+        );
+        break;
+      }
+
       case "SEND_MESSAGE": {
         const { text } = event.payload;
         console.log(
           `[Message][Room: ${conversationId}] ${cachedUser.username}: ${text}`,
         );
 
+        const roomMembers = await prisma.conversationMember.findMany({
+          where: { conversationId },
+        });
+        const peerIds = roomMembers
+          .filter((m) => m.userId !== userId)
+          .map((m) => m.userId);
+
+        const currentActiveSessions = Array.from(phonebook.values());
+
+        const activePeersInRoom = currentActiveSessions.filter(
+          (s) =>
+            s.conversationId === conversationId && peerIds.includes(s.userId),
+        );
+
+        const activePeersGlobally = currentActiveSessions.filter((s) =>
+          peerIds.includes(s.userId),
+        );
+
+        let computedStatus: "SENT" | "DELIVERED" | "READ" = "SENT";
+
+        if (activePeersInRoom.length > 0) {
+          computedStatus = "READ";
+        } else if (activePeersGlobally.length > 0) {
+          computedStatus = "DELIVERED";
+        }
+
         const savedMessage = await prisma.message.create({
-          data: { text, userId, conversationId },
+          data: {
+            text,
+            userId,
+            conversationId,
+            status: computedStatus,
+          },
         });
 
         const outboundPayload = JSON.stringify({
@@ -81,6 +154,7 @@ export async function handleMessage(
         });
 
         broadcastToRoom(wss, conversationId, outboundPayload);
+        socket.send(outboundPayload);
         break;
       }
 

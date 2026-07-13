@@ -33,11 +33,24 @@ export const authenticateJWT = (
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as unknown as {
-      userId: string;
+      userId?: string;
+      id?: string;
       username: string;
     };
 
-    req.user = decoded;
+    const targetUserId = decoded.userId || decoded.id;
+
+    if (!targetUserId) {
+      return res
+        .status(403)
+        .json({ error: "Access forbidden. Malformed identifier footprint." });
+    }
+
+    req.user = {
+      userId: targetUserId,
+      username: decoded.username,
+    };
+    
     next();
   } catch (error) {
     return res

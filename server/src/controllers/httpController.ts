@@ -41,14 +41,13 @@ export const createConversation = async (
   }
 };
 
-// 2. Add Member (Upgraded to utilize secure token extraction)
 export const addConversationMember = async (
   req: AuthenticatedRequest,
   res: Response,
 ) => {
   try {
     const { userId, conversationId } = req.body;
-    const adminId = req.user?.userId; // 🟩 Extracted securely from token
+    const adminId = req.user?.userId;
 
     if (!adminId)
       return res.status(401).json({ error: "Unauthorized operation." });
@@ -168,37 +167,60 @@ export const getAllConversations = async (req: Request, res: Response) => {
   }
 };
 
-export const getConversationMessages = async (req: Request, res: Response) => {
-  try {
-    const { conversationId } = req.params;
-    const { limit = "20", cursor } = req.query;
+export const getConversationMessages = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  const { conversationId } = req.params;
+  const currentUserId = req.user?.userId;
 
-    if (typeof conversationId !== "string") {
-      return res.status(400).json({
-        error: "A single, valid conversationId parameter is required.",
-      });
+  if (!currentUserId || !conversationId) {
+    return res
+      .status(401)
+      .json({ error: "Unauthorized session or missing parameters." });
+  }
+
+  const targetConversationId = String(conversationId);
+  const targetUserId = String(currentUserId);
+
+  try {
+    const isMember = await prisma.conversationMember.findUnique({
+      where: {
+        userId_conversationId: {
+          userId: targetUserId,
+          conversationId: targetConversationId,
+        },
+      },
+    });
+
+    if (!isMember) {
+      return res
+        .status(403)
+        .json({
+          error: "Access denied. You are not a member of this channel.",
+        });
     }
 
-    const take = parseInt(limit as string, 10) || 20;
-
-    const messages = await prisma.message.findMany({
-      where: { conversationId },
-      take: take,
-      skip: cursor ? 1 : 0,
-      orderBy: { createdAt: "desc" },
-      ...(typeof cursor === "string" ? { cursor: { id: cursor } } : {}),
+    const messageLogs = await prisma.message.findMany({
+      where: { conversationId: targetConversationId },
+      include: {
+        user: {
+          select: {
+            username: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
     });
 
-    const nextCursor =
-      messages.length === take ? messages[messages.length - 1]?.id : null;
-
-    return res.status(200).json({
-      messages,
-      nextCursor,
-    });
+    return res.json(messageLogs);
   } catch (error) {
-    console.error("Pagination Fetch Error:", error);
-    return res.status(500).json({ error: "Failed to fetch message history." });
+    console.error("Failed to compile message timeline data:", error);
+    return res
+      .status(500)
+      .json({ error: "Internal server error retrieving history logs." });
   }
 };
 
