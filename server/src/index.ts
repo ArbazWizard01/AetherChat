@@ -11,6 +11,13 @@ import {
   handleDisconnect,
 } from "./controllers/chatController.js";
 
+
+export interface AuthenticatedSocket extends WebSocket {
+  userId?: string;
+  username?: string;
+  isAlive?: boolean;
+}
+
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_super_secret_key";
 const app = express();
 
@@ -21,27 +28,46 @@ app.use(
   }),
 );
 
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use("/api", apiRoutes);
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
-wss.on("connection", async (socket: WebSocket, req) => {
+// MUST attach wss to app so API controllers can access req.app.get("wss")
+app.set("wss", wss);
+
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    const socket = ws as AuthenticatedSocket;
+    if (socket.isAlive === false) return socket.terminate();
+    socket.isAlive = false;
+    socket.ping();
+  });
+}, 30000);
+
+wss.on("close", () => clearInterval(heartbeatInterval));
+
+wss.on("connection", async (ws: WebSocket, req) => {
+  const socket = ws as AuthenticatedSocket;
+  socket.isAlive = true;
+
+  socket.on("pong", () => {
+    socket.isAlive = true;
+  });
+
   try {
     const requestUrl = new URL(req.url || "", `http://${req.headers.host}`);
     const token = requestUrl.searchParams.get("token");
 
     if (!token) {
-      console.log("❌ Connection Blocked: Missing token in WebSocket handshake.");
-      socket.send(
-        JSON.stringify({ error: "Authentication token parameter required." }),
-      );
+      socket.send(JSON.stringify({ error: "Authentication token required." }));
       socket.close(4001);
       return;
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET) as unknown as {
+    const decoded = jwt.verify(token, JWT_SECRET) as {
       userId?: string;
       id?: string;
       username: string;
@@ -50,48 +76,51 @@ wss.on("connection", async (socket: WebSocket, req) => {
     const targetUserId = decoded.userId || decoded.id;
 
     if (!targetUserId) {
-      console.log("❌ Connection Blocked: Token missing a valid user identity identifier.");
-      socket.send(
-        JSON.stringify({ error: "Invalid token structure payload." }),
-      );
+      socket.send(JSON.stringify({ error: "Invalid token payload." }));
       socket.close(4003);
       return;
     }
 
-    try {
-      await prisma.user.update({
+    socket.userId = targetUserId;
+    socket.username = decoded.username;
+
+    await prisma.user
+      .update({
         where: { id: targetUserId },
         data: { isOnline: true },
-      });
-      console.log(`🟢 Live Status: [${decoded.username}] has come ONLINE.`);
-    } catch (dbError) {
-      console.error("⚠️ Presence Warning: Could not toggle database online flag status:", dbError);
-    }
-
-    (socket as any).userId = targetUserId;
-    (socket as any).username = decoded.username;
+      })
+      .catch((err) => console.error("Presence update failed:", err));
 
     socket.on("message", (rawData) => handleMessage(socket, wss, rawData));
 
     socket.on("close", async () => {
-      console.log(`🔴 Live Status: [${decoded.username}] dropped connection.`);
-      try {
-        await prisma.user.update({
-          where: { id: targetUserId },
-          data: { isOnline: false, lastSeen: new Date() },
-        });
-      } catch (dbErr) {
-        console.error("Failed to update status on connection drop:", dbErr);
+      const remainingSockets = Array.from(wss.clients).filter((client) => {
+        const activeSocket = client as AuthenticatedSocket;
+        return (
+          activeSocket.userId === targetUserId &&
+          activeSocket.readyState === WebSocket.OPEN
+        );
+      });
+
+      if (remainingSockets.length === 0) {
+        await prisma.user
+          .update({
+            where: { id: targetUserId },
+            data: { isOnline: false, lastSeen: new Date() },
+          })
+          .catch((err) =>
+            console.error("Disconnect presence update failed:", err),
+          );
       }
+
       handleDisconnect(socket, wss);
     });
   } catch (error) {
-    console.log("❌ Connection Terminated: WebSocket authentication handshake failed.");
-    console.error("➡️ Deep Handshake Diagnostic Stack Trace:", error);
+    console.error("Handshake error:", error);
     socket.close(4003);
   }
 });
 
 server.listen(8080, () => {
-  console.log("🚀 Complete Secure Real-time Backend online on port 8080");
+  console.log("🚀 Server running on port 8080");
 });

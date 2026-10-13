@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Input, Button, Tabs, Typography, message } from "antd";
-import { UserOutlined, LockOutlined } from "@ant-design/icons";
+import { UserOutlined, LockOutlined, MailOutlined } from "@ant-design/icons";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext.js";
 
@@ -28,16 +28,25 @@ export const AuthView: React.FC = () => {
       const endpoint =
         activeTab === "login" ? "/api/auth/login" : "/api/auth/register";
 
-      const response = await axios.post(`http://localhost:8080${endpoint}`, {
-        username: values.username,
-        password: values.password,
-      });
+      const payload =
+        activeTab === "login"
+          ? { identifier: values.identifier, password: values.password }
+          : {
+              username: values.username,
+              email: values.email,
+              password: values.password,
+            };
+
+      const response = await axios.post(
+        `http://localhost:8080${endpoint}`,
+        payload,
+      );
 
       if (activeTab === "login") {
         message.success("Welcome back to AetherChat!");
         login(response.data.token, response.data.user);
       } else {
-        message.success("Registration successful! Flipping to login panel.");
+        message.success("Registration successful! Sign in to continue.");
         setActiveTab("login");
         form.resetFields();
       }
@@ -72,16 +81,55 @@ export const AuthView: React.FC = () => {
         />
 
         <StyledForm form={form} layout="vertical" onFinish={handleSubmit}>
-          <StyledForm.Item
-            name="username"
-            rules={[{ required: true, message: "Please input your username!" }]}
-          >
-            <Input
-              prefix={<UserOutlined />}
-              placeholder="Username"
-              size="large"
-            />
-          </StyledForm.Item>
+          {activeTab === "login" ? (
+            <StyledForm.Item
+              name="identifier"
+              rules={[
+                {
+                  required: true,
+                  message: "Please enter your username or email!",
+                },
+              ]}
+            >
+              <Input
+                prefix={<UserOutlined />}
+                placeholder="Username or Email"
+                size="large"
+              />
+            </StyledForm.Item>
+          ) : (
+            <>
+              <StyledForm.Item
+                name="username"
+                rules={[
+                  { required: true, message: "Please input your username!" },
+                ]}
+              >
+                <Input
+                  prefix={<UserOutlined />}
+                  placeholder="Username"
+                  size="large"
+                />
+              </StyledForm.Item>
+
+              <StyledForm.Item
+                name="email"
+                rules={[
+                  { required: true, message: "Please input your email!" },
+                  {
+                    type: "email",
+                    message: "Please enter a valid email address!",
+                  },
+                ]}
+              >
+                <Input
+                  prefix={<MailOutlined />}
+                  placeholder="Email address"
+                  size="large"
+                />
+              </StyledForm.Item>
+            </>
+          )}
 
           <StyledForm.Item
             name="password"

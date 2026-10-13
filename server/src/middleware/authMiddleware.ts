@@ -3,11 +3,13 @@ import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_super_secret_key";
 
+export interface AuthenticatedUser {
+  userId: string;
+  username: string;
+}
+
 export interface AuthenticatedRequest extends Request {
-  user?: {
-    userId: string;
-    username: string;
-  };
+  user?: AuthenticatedUser;
 }
 
 export const authenticateJWT = (
@@ -32,13 +34,14 @@ export const authenticateJWT = (
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as unknown as {
+    const decoded = jwt.verify(token, JWT_SECRET) as {
       userId?: string;
       id?: string;
+      _id?: string;
       username: string;
     };
 
-    const targetUserId = decoded.userId || decoded.id;
+    const targetUserId = decoded.userId || decoded.id || decoded._id;
 
     if (!targetUserId) {
       return res
@@ -47,10 +50,10 @@ export const authenticateJWT = (
     }
 
     req.user = {
-      userId: targetUserId,
-      username: decoded.username,
+      userId: String(targetUserId),
+      username: decoded.username || "",
     };
-    
+
     next();
   } catch (error) {
     return res
